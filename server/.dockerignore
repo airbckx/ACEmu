@@ -1,0 +1,8 @@
+target/
+save/
+client/
+webapp/node_modules/
+webapp/.next/
+webapp/out/
+webapp/*.tsbuildinfo
+**/*.log

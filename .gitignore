@@ -1,0 +1,49 @@
+# build output
+server/target/
+server/webapp/.next/
+server/webapp/out/
+server/webapp/node_modules/
+server/webapp/tsconfig.tsbuildinfo
+launcher/AcLauncher.exe
+launcher/*.pdb
+
+# runtime state: the database, logs, generated passwords
+server/save/
+server/client/
+capture/
+*.log
+
+# the game's own data tables and shop icons (see docs/GAME-DATA.md).
+# They are not part of this project and must not be committed.
+server/data/*.json
+server/webapp/public/icons/
+server/webapp/public/icons-hd/
+
+# anything pulled out of a game install, in any shape
+decrypted/
+gfx/
+export/
+*.utx
+*.ukx
+*.usx
+*.ut2
+*.upx
+*.ebtx
+*.ebsx
+*.ebkx
+*.ebtr
+*.eblx
+*.ebpx
+
+# launcher artwork is not distributed with this project
+launcher/skin/
+launcher/launcher.ini
+
+# editors and OS
+.vs/
+.idea/
+.vscode/
+*.user
+Thumbs.db
+desktop.ini
+.DS_Store

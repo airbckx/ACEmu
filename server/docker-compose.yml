@@ -1,0 +1,28 @@
+# docker compose up -d --build
+#
+# Host networking is used on purpose: the channel server's UDP responders
+# (55997/55998) answer each client with the source address they saw, which
+# is what the game uses as its public endpoint. Behind Docker's port
+# publishing (and on Docker Desktop) that address would be the proxy's, not
+# the client's, and matches would not connect. Host networking needs Linux.
+services:
+  acemu:
+    build: .
+    image: acemu
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      # the LAN/public IP of this machine, as seen by the game clients
+      ACEMU_PUBLIC_IP: ${ACEMU_PUBLIC_IP:-127.0.0.1}
+      ACEMU_GUEST_NAT: "0"
+      # admin web app sign-in (unset: a password is generated and logged)
+      ACEMU_ADMIN_USER: ${ACEMU_ADMIN_USER:-admin}
+      ACEMU_ADMIN_PASSWORD: ${ACEMU_ADMIN_PASSWORD:-}
+      RUST_LOG: info
+    volumes:
+      - acemu-save:/app/save
+      # optional: the launcher's extras pack (see ../docs/CLIENT-TWEAKS.md)
+      # - ./client:/app/client:ro
+
+volumes:
+  acemu-save:

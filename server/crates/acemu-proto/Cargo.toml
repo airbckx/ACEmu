@@ -1,0 +1,10 @@
+[package]
+name = "acemu-proto"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "BatteryNet wire protocol for Arctic Combat"
+
+[dependencies]
+anyhow.workspace = true
+tracing.workspace = true

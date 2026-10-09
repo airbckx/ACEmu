@@ -1,0 +1,8 @@
+[package]
+name = "acemu-paths"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Where the ACEmu servers keep their data and save files"
+
+[dependencies]
