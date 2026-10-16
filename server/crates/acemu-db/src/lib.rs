@@ -137,6 +137,21 @@ CREATE TABLE IF NOT EXISTS box_entries (
 /// only random boxes hand them out.
 const LOOTBOX_CATEGORIES: [&str; 3] = ["Superior", "Rare", "Legendary"];
 
+/// True when a seeding error only means another process got there first: a
+/// UNIQUE/PRIMARY KEY collision, or a write lock that stayed busy past the
+/// timeout. The tables end up filled either way, so callers say so quietly
+/// instead of warning about it (the three services seed in parallel; see
+/// `Db::seed_if_empty`).
+pub fn is_concurrent_seed(err: &anyhow::Error) -> bool {
+    err.chain().filter_map(|e| e.downcast_ref::<rusqlite::Error>()).any(|e| {
+        matches!(e, rusqlite::Error::SqliteFailure(f, _)
+            if matches!(
+                f.code,
+                rusqlite::ErrorCode::ConstraintViolation | rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked
+            ))
+    })
+}
+
 pub fn hash_password(secret: &str) -> String {
     if secret.is_empty() {
         return String::new();
@@ -175,25 +190,35 @@ impl Db {
     /// Catalogue and players are seeded independently, each only while its
     /// tables are empty, so a fresh database next to old save files picks
     /// everything up and a populated one is left alone.
+    ///
+    /// The login, channel and admin services all call this at startup, and in
+    /// the Docker image they start at the same moment (docker-entrypoint.sh),
+    /// so the whole check-and-insert runs in one BEGIN IMMEDIATE transaction:
+    /// the first process takes the write lock, the others wait for it (see the
+    /// busy timeout in `open`), then read the committed rows and skip. No
+    /// process sees an empty table another one is halfway through filling.
     pub fn seed_if_empty(&self) -> Result<SeedReport> {
         let mut report = SeedReport::default();
-        let catalog_empty: i64 = self.lock().query_row("SELECT count(*) FROM catalog", [], |r| r.get(0))?;
+        let mut conn = self.lock();
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let catalog_empty: i64 = tx.query_row("SELECT count(*) FROM catalog", [], |r| r.get(0))?;
         if catalog_empty == 0 {
-            let (c, p) = self.seed_catalog()?;
+            let (c, p) = Self::seed_catalog(&tx)?;
             report.catalog = c;
             report.products = p;
         }
-        let players_empty: i64 = self.lock().query_row("SELECT count(*) FROM players", [], |r| r.get(0))?;
-        let accounts_empty: i64 = self.lock().query_row("SELECT count(*) FROM accounts", [], |r| r.get(0))?;
+        let players_empty: i64 = tx.query_row("SELECT count(*) FROM players", [], |r| r.get(0))?;
+        let accounts_empty: i64 = tx.query_row("SELECT count(*) FROM accounts", [], |r| r.get(0))?;
         if players_empty == 0 && accounts_empty == 0 {
-            let (a, p) = self.seed_players()?;
+            let (a, p) = Self::seed_players(&tx)?;
             report.accounts = a;
             report.players = p;
         }
+        tx.commit()?;
         Ok(report)
     }
 
-    fn seed_catalog(&self) -> Result<(usize, usize)> {
+    fn seed_catalog(tx: &Transaction<'_>) -> Result<(usize, usize)> {
         #[derive(Deserialize)]
         struct WeaponRow {
             id: i32,
@@ -264,8 +289,6 @@ impl Db {
             in_table: bool,
             prices: Vec<PriceRow>,
         }
-        let mut conn = self.lock();
-        let tx = conn.transaction()?;
         let mut rows: BTreeMap<i32, Row> = BTreeMap::new();
         for w in weapons {
             rows.insert(
@@ -381,13 +404,13 @@ impl Db {
         let n = rows.len();
         for (id, r) in rows {
             tx.execute(
-                "INSERT INTO catalog (id, name, item_type, kind, category, sell_price, availability, shop_order, in_shop_table)
+                "INSERT OR IGNORE INTO catalog (id, name, item_type, kind, category, sell_price, availability, shop_order, in_shop_table)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
                 params![id, r.name, r.item_type, r.kind, r.category, r.sell_price, r.avail.as_str(), r.order, r.in_table as i32],
             )?;
             for (idx, p) in r.prices.iter().enumerate() {
                 tx.execute(
-                    "INSERT INTO prices (item_id, idx, hours, points, cash) VALUES (?1, ?2, ?3, ?4, ?5)",
+                    "INSERT OR IGNORE INTO prices (item_id, idx, hours, points, cash) VALUES (?1, ?2, ?3, ?4, ?5)",
                     params![id, idx as i32, p.hours, p.points, p.cash],
                 )?;
             }
@@ -424,7 +447,6 @@ impl Db {
             box_count += 1;
         }
         tx.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('catalog_seeded_at', datetime('now'))", [])?;
-        tx.commit()?;
         tracing::info!(catalog = n, products = product_count, boxes = box_count, "catalogue and boxes seeded from data/*.json");
         Ok((n, product_count))
     }
@@ -481,7 +503,7 @@ impl Db {
         Ok(())
     }
 
-    fn seed_players(&self) -> Result<(usize, usize)> {
+    fn seed_players(tx: &Transaction<'_>) -> Result<(usize, usize)> {
         #[derive(Deserialize)]
         struct JItem {
             unique_id: f64,
@@ -576,8 +598,6 @@ impl Db {
             }
         }
 
-        let mut conn = self.lock();
-        let tx = conn.transaction()?;
         let mut n_players = 0;
         for (name, inv) in players {
             let rec = PlayerRecord {
@@ -616,7 +636,7 @@ impl Db {
                     })
                     .collect(),
             };
-            write_player(&tx, &rec)?;
+            write_player(tx, &rec)?;
             n_players += 1;
         }
         let mut n_accounts = 0;
@@ -629,7 +649,6 @@ impl Db {
             n_accounts += 1;
         }
         tx.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('players_seeded_at', datetime('now'))", [])?;
-        tx.commit()?;
         tracing::info!(players = n_players, accounts = n_accounts, "players and accounts seeded from save/*.json|txt");
         Ok((n_accounts, n_players))
     }
@@ -1364,5 +1383,42 @@ mod tests {
         assert_eq!(rows.len(), 2);
         let (total, _) = db.catalog_search("", Some(1), Some(Availability::Hidden), 10, 0).unwrap();
         assert_eq!(total, 1);
+    }
+
+    /// All three services call `seed_if_empty` as they start, and in the Docker
+    /// image they start at the same moment: exactly one fills the catalogue and
+    /// the others find it already there instead of colliding on `catalog.id`.
+    #[test]
+    fn parallel_seeding_fills_the_catalogue_once() {
+        let dir = std::env::temp_dir().join(format!("acemu-seed-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let items = dir.join("items.json");
+        let shop = dir.join("shop.json");
+        std::fs::write(&items, r#"[{"id":2000,"name":"G3","type":1},{"id":2001,"name":"G3 Gold","type":1}]"#).unwrap();
+        std::fs::write(&shop, r#"[{"id":2000,"name":"G3","kind":1,"category":"Rifle","sell_price":10,"periods":[168],"points":[900],"cash":[0]}]"#).unwrap();
+        std::env::set_var("ACEMU_ITEMS", &items);
+        std::env::set_var("ACEMU_SHOP", &shop);
+        std::env::set_var("ACEMU_PRODUCTS", dir.join("absent.json"));
+        std::env::set_var("ACEMU_BOXES", dir.join("absent.json"));
+        std::env::set_var("ACEMU_AVAILABILITY", dir.join("absent.json"));
+        let path = dir.join("parallel.db");
+
+        let seeded: Vec<usize> = std::thread::scope(|s| {
+            let handles: Vec<_> = (0..4)
+                .map(|_| {
+                    let path = path.clone();
+                    s.spawn(move || Db::open(&path).unwrap().seed_if_empty().unwrap().catalog)
+                })
+                .collect();
+            handles.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+        assert_eq!(seeded.iter().filter(|&&n| n > 0).count(), 1, "exactly one of them seeds, got {seeded:?}");
+
+        let db = Db::open(&path).unwrap();
+        assert_eq!(db.summary().unwrap().catalog, 2, "both items, each exactly once");
+        assert_eq!(db.catalog_item(2000).unwrap().unwrap().prices.len(), 1);
+        drop(db);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

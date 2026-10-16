@@ -116,6 +116,7 @@ pub fn load_catalog() {
             tracing::info!(catalog = r.catalog, products = r.products, players = r.players, accounts = r.accounts, "database seeded from data/ and save/")
         }
         Ok(_) => {}
+        Err(e) if acemu_db::is_concurrent_seed(&e) => tracing::info!("another service is seeding the database; nothing to do"),
         Err(e) => tracing::warn!(error = %e, "database seeding failed"),
     }
     let products = read_json::<Product>("ACEMU_PRODUCTS", PRODUCTS_FILE, "product feed");

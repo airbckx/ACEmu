@@ -98,6 +98,7 @@ fn main() -> Result<()> {
     match db().seed_if_empty() {
         Ok(r) if r.accounts > 0 || r.players > 0 => tracing::info!(accounts = r.accounts, players = r.players, "database seeded from save/"),
         Ok(_) => {}
+        Err(e) if acemu_db::is_concurrent_seed(&e) => tracing::info!("another service is seeding the database; nothing to do"),
         Err(e) => tracing::warn!(error = %e, "database seeding failed"),
     }
 

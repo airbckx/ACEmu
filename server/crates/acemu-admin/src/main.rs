@@ -90,7 +90,16 @@ async fn main() -> Result<()> {
     let _ = *STARTED_AT;
 
     let db = Db::open_default()?;
-    let seeded = db.seed_if_empty()?;
+    // The login and channel servers seed too (docker-entrypoint.sh starts all
+    // three at once), so losing that race is not a startup failure.
+    let seeded = match db.seed_if_empty() {
+        Ok(r) => r,
+        Err(e) if acemu_db::is_concurrent_seed(&e) => {
+            tracing::info!("another service is seeding the database; nothing to do");
+            acemu_db::model::SeedReport::default()
+        }
+        Err(e) => return Err(e),
+    };
     tracing::info!(home = %acemu_paths::home().display(), ?seeded, "database ready (save/acemu.db)");
     auth::init(&db)?;
     let db = Arc::new(db);

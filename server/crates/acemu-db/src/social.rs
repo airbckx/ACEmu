@@ -507,11 +507,11 @@ impl Db {
     /// Loads the client's daily-quest rotation table once (`data/daily-quests.json`).
     pub fn daily_quests_seed(&self, rows: &[DailyQuestRow]) -> Result<usize> {
         let mut conn = self.lock();
-        let existing: i64 = conn.query_row("SELECT count(*) FROM daily_quests", [], |r| r.get(0))?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let existing: i64 = tx.query_row("SELECT count(*) FROM daily_quests", [], |r| r.get(0))?;
         if existing > 0 || rows.is_empty() {
             return Ok(0);
         }
-        let tx = conn.transaction()?;
         for r in rows {
             tx.execute("INSERT OR REPLACE INTO daily_quests (daily_type, step, quest_id) VALUES (?1, ?2, ?3)", params![r.daily_type, r.step, r.quest_id])?;
         }
@@ -531,11 +531,11 @@ impl Db {
     /// Loads the daily reward table once (`data/daily-rewards.json`).
     pub fn daily_rewards_seed(&self, rows: &[DailyRewardRow]) -> Result<usize> {
         let mut conn = self.lock();
-        let existing: i64 = conn.query_row("SELECT count(*) FROM daily_rewards", [], |r| r.get(0))?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let existing: i64 = tx.query_row("SELECT count(*) FROM daily_rewards", [], |r| r.get(0))?;
         if existing > 0 || rows.is_empty() {
             return Ok(0);
         }
-        let tx = conn.transaction()?;
         for r in rows {
             tx.execute(
                 "INSERT OR REPLACE INTO daily_rewards (reward_type, num, item_id, count) VALUES (?1, ?2, ?3, ?4)",
@@ -560,11 +560,11 @@ impl Db {
 
     pub fn capsule_rewards_seed(&self, rows: &[CapsuleRewardRow]) -> Result<usize> {
         let mut conn = self.lock();
-        let existing: i64 = conn.query_row("SELECT count(*) FROM capsule_rewards", [], |r| r.get(0))?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let existing: i64 = tx.query_row("SELECT count(*) FROM capsule_rewards", [], |r| r.get(0))?;
         if existing > 0 || rows.is_empty() {
             return Ok(0);
         }
-        let tx = conn.transaction()?;
         for r in rows {
             tx.execute(
                 "INSERT OR REPLACE INTO capsule_rewards (reward_type, idx, need, reward_id) VALUES (?1, ?2, ?3, ?4)",
@@ -590,11 +590,11 @@ impl Db {
     /// Loads the quest table once (rows from `data/quests.json`).
     pub fn quests_seed(&self, rows: &[QuestRow]) -> Result<usize> {
         let mut conn = self.lock();
-        let existing: i64 = conn.query_row("SELECT count(*) FROM quests", [], |r| r.get(0))?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let existing: i64 = tx.query_row("SELECT count(*) FROM quests", [], |r| r.get(0))?;
         if existing > 0 || rows.is_empty() {
             return Ok(0);
         }
-        let tx = conn.transaction()?;
         for q in rows {
             let next: Vec<String> = q.next_quests.iter().map(|n| n.to_string()).collect();
             tx.execute(

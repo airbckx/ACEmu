@@ -349,24 +349,28 @@ pub fn seed_tables() {
     match db.quests_seed(&quests) {
         Ok(n) if n > 0 => tracing::info!(quests = n, "quest table seeded"),
         Ok(_) => {}
+        Err(e) if acemu_db::is_concurrent_seed(&e) => tracing::debug!("quest table seeded by another service"),
         Err(e) => tracing::warn!(error = %e, "quest table seeding failed"),
     }
     let rewards: Vec<db_social::CapsuleRewardRow> = inventory::read_json_table("ACEMU_CAPSULE_REWARDS", "capsule-rewards.json", "capsule-reward table");
     match db.capsule_rewards_seed(&rewards) {
         Ok(n) if n > 0 => tracing::info!(rewards = n, "capsule-reward table seeded"),
         Ok(_) => {}
+        Err(e) if acemu_db::is_concurrent_seed(&e) => tracing::debug!("capsule-reward table seeded by another service"),
         Err(e) => tracing::warn!(error = %e, "capsule-reward table seeding failed"),
     }
     let daily: Vec<db_social::DailyQuestRow> = inventory::read_json_table("ACEMU_DAILY_QUESTS", "daily-quests.json", "daily-quest table");
     match db.daily_quests_seed(&daily) {
         Ok(n) if n > 0 => tracing::info!(rows = n, "daily-quest table seeded"),
         Ok(_) => {}
+        Err(e) if acemu_db::is_concurrent_seed(&e) => tracing::debug!("daily-quest table seeded by another service"),
         Err(e) => tracing::warn!(error = %e, "daily-quest table seeding failed"),
     }
     let daily_rewards: Vec<db_social::DailyRewardRow> = inventory::read_json_table("ACEMU_DAILY_REWARDS", "daily-rewards.json", "daily-reward table");
     match db.daily_rewards_seed(&daily_rewards) {
         Ok(n) if n > 0 => tracing::info!(rows = n, "daily-reward table seeded"),
         Ok(_) => {}
+        Err(e) if acemu_db::is_concurrent_seed(&e) => tracing::debug!("daily-reward table seeded by another service"),
         Err(e) => tracing::warn!(error = %e, "daily-reward table seeding failed"),
     }
     // A code everyone can redeem once, so the coupon path can be tried without
